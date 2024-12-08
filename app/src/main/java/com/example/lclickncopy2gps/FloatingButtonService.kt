@@ -3,6 +3,7 @@ package com.example.lclickncopy2gps
 import android.app.Service
 import android.content.Intent
 import android.graphics.PixelFormat
+import android.graphics.Rect
 import android.location.Geocoder
 import android.net.Uri
 import android.os.IBinder
@@ -20,10 +21,12 @@ import kotlin.concurrent.thread
 class FloatingButtonService : Service() {
     private lateinit var windowManager: WindowManager
     private lateinit var floatingButton: View
+    private lateinit var closeButton: View
     private var initialX: Int = 0
     private var initialY: Int = 0
     private var initialTouchX: Float = 0f
     private var initialTouchY: Float = 0f
+    private var isCloseBtnShowing = false
 
     override fun onBind(intent: Intent): IBinder? = null
 
@@ -31,73 +34,133 @@ class FloatingButtonService : Service() {
         super.onCreate()
         windowManager = getSystemService(WINDOW_SERVICE) as WindowManager
         setupFloatingButton()
+        setupCloseButton()
     }
 
     private fun setupFloatingButton() {
+        // Infla o layout
         floatingButton = LayoutInflater.from(this).inflate(R.layout.layout_floating_button, null)
 
-        val params = WindowManager.LayoutParams().apply {
-            width = WindowManager.LayoutParams.WRAP_CONTENT
-            height = WindowManager.LayoutParams.WRAP_CONTENT
-            type = WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY
-            flags = WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE
-            format = PixelFormat.TRANSLUCENT
+        // Configura os parâmetros da janela
+        val params = WindowManager.LayoutParams(
+            WindowManager.LayoutParams.WRAP_CONTENT,
+            WindowManager.LayoutParams.WRAP_CONTENT,
+            WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY,
+            WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE,
+            PixelFormat.TRANSLUCENT
+        ).apply {
             gravity = Gravity.TOP or Gravity.START
-            x = 100
-            y = 200
+            x = 0
+            y = 100
         }
 
-        try {
-            windowManager.addView(floatingButton, params)
-            floatingButton.findViewById<ImageButton>(R.id.floatingButton).setOnClickListener {
-                handleButtonClick()
-            }
-            setupTouchListener(params)
-        } catch (e: Exception) {
-            e.printStackTrace()
-            Toast.makeText(this, "Erro ao criar botão flutuante", Toast.LENGTH_SHORT).show()
+        // Adiciona a view e configura o listener
+        windowManager.addView(floatingButton, params)
+        setupTouchListener(params)
+    }
+
+    private fun setupCloseButton() {
+        closeButton = LayoutInflater.from(this).inflate(R.layout.layout_close_button, null)
+
+        val params = WindowManager.LayoutParams(
+            WindowManager.LayoutParams.WRAP_CONTENT,
+            WindowManager.LayoutParams.WRAP_CONTENT,
+            WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY,
+            WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE,
+            PixelFormat.TRANSLUCENT
+        ).apply {
+            gravity = Gravity.BOTTOM or Gravity.CENTER_HORIZONTAL
+            y = 100 // Distância do fundo da tela
         }
+
+        closeButton.visibility = View.GONE
+        windowManager.addView(closeButton, params)
     }
 
     private fun setupTouchListener(params: WindowManager.LayoutParams) {
-        var initialClickTime: Long = 0
-        var isClick = true
+        val button = floatingButton.findViewById<ImageButton>(R.id.floatingButton)
 
-        floatingButton.setOnTouchListener { _, event ->
+        button.setOnTouchListener { view, event ->
             when (event.action) {
                 MotionEvent.ACTION_DOWN -> {
-                    initialClickTime = System.currentTimeMillis()
-                    isClick = true
                     initialX = params.x
                     initialY = params.y
                     initialTouchX = event.rawX
                     initialTouchY = event.rawY
+                    showCloseButton()
                     true
                 }
                 MotionEvent.ACTION_MOVE -> {
-                    val moved = Math.abs(event.rawX - initialTouchX) > 10 ||
-                            Math.abs(event.rawY - initialTouchY) > 10
-                    if (moved) {
-                        isClick = false
-                        params.x = initialX + (event.rawX - initialTouchX).toInt()
-                        params.y = initialY + (event.rawY - initialTouchY).toInt()
-                        try {
-                            windowManager.updateViewLayout(floatingButton, params)
-                        } catch (e: Exception) {
-                            e.printStackTrace()
+                    params.x = initialX + (event.rawX - initialTouchX).toInt()
+                    params.y = initialY + (event.rawY - initialTouchY).toInt()
+                    try {
+                        windowManager.updateViewLayout(floatingButton, params)
+
+                        if (isNearCloseButton()) {
+                            closeButton.alpha = 0.7f
+                        } else {
+                            closeButton.alpha = 1.0f
                         }
+                    } catch (e: Exception) {
+                        e.printStackTrace()
                     }
                     true
                 }
                 MotionEvent.ACTION_UP -> {
-                    val clickDuration = System.currentTimeMillis() - initialClickTime
-                    if (isClick && clickDuration < 200) {
-                        floatingButton.performClick()
+                    hideCloseButton()
+                    val moved = Math.abs(event.rawX - initialTouchX) > 5 ||
+                            Math.abs(event.rawY - initialTouchY) > 5
+
+                    if (isNearCloseButton()) {
+                        stopSelf()
+                    } else if (!moved) {
+                        view.performClick()
+                        handleButtonClick()
                     }
                     true
                 }
                 else -> false
             }
+        }
+
+        button.setOnClickListener {
+            handleButtonClick()
+        }
+    }
+
+    private fun isNearCloseButton(): Boolean {
+        if (!::closeButton.isInitialized) return false
+
+        val closeLocation = IntArray(2)
+        closeButton.getLocationOnScreen(closeLocation)
+
+        val buttonLocation = IntArray(2)
+        floatingButton.getLocationOnScreen(buttonLocation)
+
+        val closeRect = Rect(
+            closeLocation[0],
+            closeLocation[1],
+            closeLocation[0] + closeButton.width,
+            closeLocation[1] + closeButton.height
+        )
+
+        return closeRect.contains(
+            buttonLocation[0] + floatingButton.width/2,
+            buttonLocation[1] + floatingButton.height/2
+        )
+    }
+
+    private fun showCloseButton() {
+        if (!isCloseBtnShowing && ::closeButton.isInitialized) {
+            closeButton.visibility = View.VISIBLE
+            isCloseBtnShowing = true
+        }
+    }
+
+    private fun hideCloseButton() {
+        if (isCloseBtnShowing && ::closeButton.isInitialized) {
+            closeButton.visibility = View.GONE
+            isCloseBtnShowing = false
         }
     }
 
@@ -190,6 +253,9 @@ class FloatingButtonService : Service() {
         super.onDestroy()
         if (::floatingButton.isInitialized) {
             windowManager.removeView(floatingButton)
+        }
+        if (::closeButton.isInitialized) {
+            windowManager.removeView(closeButton)
         }
     }
 }

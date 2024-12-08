@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="utf-8"?>
+<ImageView
+    xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    android:id="@+id/closeButton"
+    android:layout_width="48dp"
+    android:layout_height="48dp"
+    android:src="@android:drawable/ic_menu_close_clear_cancel"
+    android:background="@android:drawable/btn_default"
+    android:padding="8dp"
+    app:tint="#FF0000"
+    android:contentDescription="@string/close_button_description" />

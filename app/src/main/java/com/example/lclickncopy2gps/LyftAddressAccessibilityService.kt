@@ -66,9 +66,29 @@ class LyftAddressAccessibilityService : AccessibilityService() {
 
     private fun isAddress(text: String): Boolean {
         val cleanText = text.trim().replace(Regex("\\s+"), " ")
-        return cleanText.matches(Regex("^\\d+.*,.*")) &&
-                cleanText.length > 5 &&
-                cleanText.contains(",")
+
+        // Verifica se começa com número e tem vírgula
+        if (!cleanText.matches(Regex("^\\d+.*,.*"))) {
+            return false
+        }
+
+        // Verifica comprimento mínimo
+        if (cleanText.length < 5) {
+            return false
+        }
+
+        // Ignora textos muito longos (provavelmente são descrições)
+        if (cleanText.length > 100) {
+            return false
+        }
+
+        // Verifica se contém palavras-chave típicas de endereços dos EUA
+        val hasAddressKeywords = cleanText.contains(Regex("\\b(St|Ave|Rd|Blvd|Dr|Ln|Way|IL|Chicago)\\b", RegexOption.IGNORE_CASE))
+
+        // Ignora se contém palavras-chave típicas de conteúdo não-endereço
+        val hasNonAddressKeywords = cleanText.contains(Regex("\\b(view|hotel|family|reviews|bubbles)\\b", RegexOption.IGNORE_CASE))
+
+        return hasAddressKeywords && !hasNonAddressKeywords
     }
 
     private fun formatAddress(text: String): String {
