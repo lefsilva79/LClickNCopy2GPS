@@ -3,6 +3,7 @@ package com.example.lclickncopy2gps
 import android.app.Service
 import android.content.Intent
 import android.graphics.PixelFormat
+import android.location.Geocoder
 import android.net.Uri
 import android.os.IBinder
 import android.view.Gravity
@@ -12,6 +13,9 @@ import android.view.View
 import android.view.WindowManager
 import android.widget.ImageButton
 import android.widget.Toast
+import com.google.android.gms.maps.model.LatLng
+import java.io.IOException
+import kotlin.concurrent.thread
 
 class FloatingButtonService : Service() {
     private lateinit var windowManager: WindowManager
@@ -30,10 +34,8 @@ class FloatingButtonService : Service() {
     }
 
     private fun setupFloatingButton() {
-        // Inflatar o layout
         floatingButton = LayoutInflater.from(this).inflate(R.layout.layout_floating_button, null)
 
-        // Configurar os parâmetros da janela
         val params = WindowManager.LayoutParams().apply {
             width = WindowManager.LayoutParams.WRAP_CONTENT
             height = WindowManager.LayoutParams.WRAP_CONTENT
@@ -41,22 +43,16 @@ class FloatingButtonService : Service() {
             flags = WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE
             format = PixelFormat.TRANSLUCENT
             gravity = Gravity.TOP or Gravity.START
-            x = 100  // posição inicial X
-            y = 200  // posição inicial Y
+            x = 100
+            y = 200
         }
 
         try {
-            // Adicionar o botão à janela
             windowManager.addView(floatingButton, params)
-
-            // Configurar o clique do botão
             floatingButton.findViewById<ImageButton>(R.id.floatingButton).setOnClickListener {
                 handleButtonClick()
             }
-
-            // Configurar o touch listener para arrastar
             setupTouchListener(params)
-
         } catch (e: Exception) {
             e.printStackTrace()
             Toast.makeText(this, "Erro ao criar botão flutuante", Toast.LENGTH_SHORT).show()
@@ -106,29 +102,88 @@ class FloatingButtonService : Service() {
     }
 
     private fun handleButtonClick() {
-        val address = LyftAddressAccessibilityService.lastDetectedAddress
+        val address = LyftAddressAccessibilityService.detectAddressNow()
         if (address.isNotEmpty()) {
             openWaze(address)
         } else {
-            Toast.makeText(this, "Nenhum endereço detectado ainda", Toast.LENGTH_SHORT).show()
+            Toast.makeText(this, "Nenhum endereço detectado na tela atual", Toast.LENGTH_SHORT).show()
         }
     }
 
     private fun openWaze(address: String) {
+        thread {
+            val coordinates = getCoordinatesFromAddress(address)
+            if (coordinates != null) {
+                openWazeWithCoordinates(coordinates, address)
+            } else {
+                openWazeWithAddress(address)
+            }
+        }
+    }
+
+    private fun getCoordinatesFromAddress(address: String): LatLng? {
         try {
-            val formattedAddress = address.trim().replace(Regex("\\s+"), " ")
-            val wazeUri = "waze://?q=${Uri.encode(formattedAddress)}&navigate=yes"
+            val geocoder = Geocoder(this)
+            // Aumentando a precisão usando o endereço completo
+            val results = geocoder.getFromLocationName(address, 1)
+            if (!results.isNullOrEmpty()) {
+                val location = results[0]
+                // Validar se o número do endereço está correto
+                val streetNumber = address.split(" ").firstOrNull()?.toIntOrNull()
+                val resultNumber = location.getAddressLine(0)?.split(" ")?.firstOrNull()?.toIntOrNull()
+
+                // Se os números são muito diferentes, retorna null para usar o método de endereço direto
+                if (streetNumber != null && resultNumber != null) {
+                    if (Math.abs(streetNumber - resultNumber) > 2) {
+                        return null
+                    }
+                }
+                return LatLng(location.latitude, location.longitude)
+            }
+        } catch (e: IOException) {
+            e.printStackTrace()
+        }
+        return null
+    }
+
+    private fun openWazeWithCoordinates(coordinates: LatLng, address: String) {
+        try {
+            val wazeUri = "waze://?ll=${coordinates.latitude},${coordinates.longitude}" +
+                    "&navigate=yes" +
+                    "&zoom=17" +
+                    "&accuracy=100" +
+                    "&q=${Uri.encode(address)}"  // Adiciona o endereço original como referência
             val intent = Intent(Intent.ACTION_VIEW, Uri.parse(wazeUri)).apply {
                 flags = Intent.FLAG_ACTIVITY_NEW_TASK
             }
             startActivity(intent)
         } catch (e: Exception) {
-            val marketUri = "market://details?id=com.waze"
-            val intent = Intent(Intent.ACTION_VIEW, Uri.parse(marketUri)).apply {
+            openPlayStore()
+        }
+    }
+
+    private fun openWazeWithAddress(address: String) {
+        try {
+            val formattedAddress = address.trim().replace(Regex("\\s+"), " ")
+            val wazeUri = "waze://?q=${Uri.encode(formattedAddress)}" +
+                    "&navigate=yes" +
+                    "&zoom=17" +
+                    "&accuracy=100"
+            val intent = Intent(Intent.ACTION_VIEW, Uri.parse(wazeUri)).apply {
                 flags = Intent.FLAG_ACTIVITY_NEW_TASK
             }
             startActivity(intent)
+        } catch (e: Exception) {
+            openPlayStore()
         }
+    }
+
+    private fun openPlayStore() {
+        val marketUri = "market://details?id=com.waze"
+        val intent = Intent(Intent.ACTION_VIEW, Uri.parse(marketUri)).apply {
+            flags = Intent.FLAG_ACTIVITY_NEW_TASK
+        }
+        startActivity(intent)
     }
 
     override fun onDestroy() {

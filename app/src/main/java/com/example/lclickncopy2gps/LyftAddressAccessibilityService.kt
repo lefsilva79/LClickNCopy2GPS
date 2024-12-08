@@ -1,7 +1,6 @@
 package com.example.lclickncopy2gps
 
 import android.accessibilityservice.AccessibilityService
-import android.accessibilityservice.AccessibilityServiceInfo
 import android.util.Log
 import android.view.accessibility.AccessibilityEvent
 import android.view.accessibility.AccessibilityNodeInfo
@@ -9,27 +8,37 @@ import android.view.accessibility.AccessibilityNodeInfo
 class LyftAddressAccessibilityService : AccessibilityService() {
     companion object {
         private const val TAG = "LyftAccessibilityService"
+        private var instance: LyftAddressAccessibilityService? = null
         var lastDetectedAddress: String = ""
             private set
+
+        fun detectAddressNow(): String {
+            return instance?.findCurrentAddress() ?: ""
+        }
     }
 
     override fun onServiceConnected() {
         super.onServiceConnected()
+        instance = this
         Log.d(TAG, "Serviço de acessibilidade conectado")
     }
 
-    override fun onAccessibilityEvent(event: AccessibilityEvent?) {
+    private fun findCurrentAddress(): String {
+        lastDetectedAddress = ""  // Reset do último endereço
         try {
-            if (event?.eventType == AccessibilityEvent.TYPE_WINDOW_CONTENT_CHANGED) {
-                val rootNode = rootInActiveWindow
-                if (rootNode != null) {
-                    findAddressNodes(rootNode)
-                    rootNode.recycle()
-                }
+            val rootNode = rootInActiveWindow
+            if (rootNode != null) {
+                findAddressNodes(rootNode)
+                rootNode.recycle()
             }
         } catch (e: Exception) {
-            Log.e(TAG, "Erro ao processar evento de acessibilidade", e)
+            Log.e(TAG, "Erro ao buscar endereço", e)
         }
+        return lastDetectedAddress
+    }
+
+    override fun onAccessibilityEvent(event: AccessibilityEvent?) {
+        // Agora vazio pois a detecção é feita apenas no clique do botão
     }
 
     private fun findAddressNodes(node: AccessibilityNodeInfo) {
@@ -37,7 +46,7 @@ class LyftAddressAccessibilityService : AccessibilityService() {
             node.text?.toString()?.let { text ->
                 if (isAddress(text)) {
                     val formattedAddress = formatAddress(text)
-                    if (formattedAddress != lastDetectedAddress) {
+                    if (formattedAddress.isNotEmpty()) {
                         lastDetectedAddress = formattedAddress
                         Log.d(TAG, "Endereço detectado e formatado: $lastDetectedAddress")
                     }
@@ -56,19 +65,18 @@ class LyftAddressAccessibilityService : AccessibilityService() {
     }
 
     private fun isAddress(text: String): Boolean {
-        // Verifica se começa com números (padrão americano)
-        val startsWithNumber = text.trim().matches(Regex("^\\d+.*"))
-
-        // Verifica se tem um comprimento mínimo razoável e contém mais números
-        return startsWithNumber && text.length > 5 && text.contains(Regex("\\d+"))
+        val cleanText = text.trim().replace(Regex("\\s+"), " ")
+        return cleanText.matches(Regex("^\\d+.*,.*")) &&
+                cleanText.length > 5 &&
+                cleanText.contains(",")
     }
 
     private fun formatAddress(text: String): String {
         return text
-            .trim() // Remove espaços no início e fim
-            .replace(Regex("\\s+"), " ") // Substitui múltiplos espaços por um único espaço
-            .replace("\n", " ") // Substitui quebras de linha por espaço
-            .replace("\t", " ") // Substitui tabs por espaço
+            .trim()
+            .replace(Regex("\\s+"), " ")
+            .replace("\n", " ")
+            .replace("\t", " ")
     }
 
     override fun onInterrupt() {
@@ -77,6 +85,7 @@ class LyftAddressAccessibilityService : AccessibilityService() {
 
     override fun onDestroy() {
         super.onDestroy()
+        instance = null
         Log.d(TAG, "Serviço de acessibilidade destruído")
     }
 }
