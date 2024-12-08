@@ -6,7 +6,7 @@ import android.net.Uri
 import android.os.Bundle
 import android.provider.Settings
 import android.view.accessibility.AccessibilityManager
-import android.accessibilityservice.AccessibilityServiceInfo  // Adicione esta linha
+import android.accessibilityservice.AccessibilityServiceInfo
 import android.widget.Toast
 import androidx.appcompat.app.AppCompatActivity
 import com.example.lclickncopy2gps.databinding.ActivityMainBinding
@@ -16,18 +16,26 @@ class MainActivity : AppCompatActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+
+        // Se todas as permissões já estiverem concedidas, inicia o serviço e fecha o app
+        if (isAccessibilityServiceEnabled() && Settings.canDrawOverlays(this)) {
+            startFloatingService()
+            finish()
+            return
+        }
+
+        // Se não, mostra a tela de configuração
         binding = ActivityMainBinding.inflate(layoutInflater)
         setContentView(binding.root)
 
-        binding.startServiceButton.setOnClickListener {
-            if (!Settings.canDrawOverlays(this)) {
-                requestOverlayPermission()
-            } else if (!isAccessibilityServiceEnabled()) {
-                openAccessibilitySettings()
-                Toast.makeText(this, "Por favor, habilite o serviço de acessibilidade", Toast.LENGTH_LONG).show()
-            } else {
-                startFloatingService()
-            }
+        updatePermissionStatus()
+
+        binding.accessibilityButton.setOnClickListener {
+            openAccessibilitySettings()
+        }
+
+        binding.locationButton.setOnClickListener {
+            requestOverlayPermission()
         }
     }
 
@@ -51,15 +59,12 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun startFloatingService() {
-        if (!isAccessibilityServiceEnabled()) {
-            openAccessibilitySettings()
-            return
-        }
-
         try {
             val serviceIntent = Intent(this, FloatingButtonService::class.java)
             startService(serviceIntent)
             Toast.makeText(this, "Serviço iniciado", Toast.LENGTH_SHORT).show()
+            // Fecha o app após iniciar o serviço com sucesso
+            finish()
         } catch (e: Exception) {
             Toast.makeText(this, "Erro ao iniciar o serviço: ${e.message}", Toast.LENGTH_LONG).show()
         }
@@ -86,6 +91,26 @@ class MainActivity : AppCompatActivity() {
             } else {
                 Toast.makeText(this, "Permissão necessária para o botão flutuante", Toast.LENGTH_LONG).show()
             }
+        }
+    }
+
+    private fun updatePermissionStatus() {
+        binding.accessibilityCheck.isChecked = isAccessibilityServiceEnabled()
+        binding.locationCheck.isChecked = Settings.canDrawOverlays(this)
+
+        // Se todas as permissões estiverem ok, inicia o serviço e fecha o app
+        if (isAccessibilityServiceEnabled() && Settings.canDrawOverlays(this)) {
+            startFloatingService()
+        }
+    }
+
+    override fun onResume() {
+        super.onResume()
+        // Verifica se pode fechar o app assim que voltar para ele
+        if (isAccessibilityServiceEnabled() && Settings.canDrawOverlays(this)) {
+            startFloatingService()
+        } else {
+            updatePermissionStatus()
         }
     }
 
