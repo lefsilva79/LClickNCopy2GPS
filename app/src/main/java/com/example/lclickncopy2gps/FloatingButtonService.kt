@@ -30,33 +30,48 @@ class FloatingButtonService : Service() {
     }
 
     private fun setupFloatingButton() {
-        val inflater = LayoutInflater.from(this)
-        floatingButton = inflater.inflate(R.layout.layout_floating_button, null)
+        // Inflatar o layout
+        floatingButton = LayoutInflater.from(this).inflate(R.layout.layout_floating_button, null)
 
-        val params = WindowManager.LayoutParams(
-            WindowManager.LayoutParams.WRAP_CONTENT,
-            WindowManager.LayoutParams.WRAP_CONTENT,
-            WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY,
-            WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE,
-            PixelFormat.TRANSLUCENT
-        )
-        params.gravity = Gravity.TOP or Gravity.START
-        params.x = 0
-        params.y = 100
-
-        val button = floatingButton.findViewById<ImageButton>(R.id.floatingButton)
-        button.setOnClickListener {
-            handleButtonClick()
+        // Configurar os parâmetros da janela
+        val params = WindowManager.LayoutParams().apply {
+            width = WindowManager.LayoutParams.WRAP_CONTENT
+            height = WindowManager.LayoutParams.WRAP_CONTENT
+            type = WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY
+            flags = WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE
+            format = PixelFormat.TRANSLUCENT
+            gravity = Gravity.TOP or Gravity.START
+            x = 100  // posição inicial X
+            y = 200  // posição inicial Y
         }
 
-        setupTouchListener(params)
-        windowManager.addView(floatingButton, params)
+        try {
+            // Adicionar o botão à janela
+            windowManager.addView(floatingButton, params)
+
+            // Configurar o clique do botão
+            floatingButton.findViewById<ImageButton>(R.id.floatingButton).setOnClickListener {
+                handleButtonClick()
+            }
+
+            // Configurar o touch listener para arrastar
+            setupTouchListener(params)
+
+        } catch (e: Exception) {
+            e.printStackTrace()
+            Toast.makeText(this, "Erro ao criar botão flutuante", Toast.LENGTH_SHORT).show()
+        }
     }
 
     private fun setupTouchListener(params: WindowManager.LayoutParams) {
+        var initialClickTime: Long = 0
+        var isClick = true
+
         floatingButton.setOnTouchListener { _, event ->
             when (event.action) {
                 MotionEvent.ACTION_DOWN -> {
+                    initialClickTime = System.currentTimeMillis()
+                    isClick = true
                     initialX = params.x
                     initialY = params.y
                     initialTouchX = event.rawX
@@ -64,9 +79,25 @@ class FloatingButtonService : Service() {
                     true
                 }
                 MotionEvent.ACTION_MOVE -> {
-                    params.x = initialX + (event.rawX - initialTouchX).toInt()
-                    params.y = initialY + (event.rawY - initialTouchY).toInt()
-                    windowManager.updateViewLayout(floatingButton, params)
+                    val moved = Math.abs(event.rawX - initialTouchX) > 10 ||
+                            Math.abs(event.rawY - initialTouchY) > 10
+                    if (moved) {
+                        isClick = false
+                        params.x = initialX + (event.rawX - initialTouchX).toInt()
+                        params.y = initialY + (event.rawY - initialTouchY).toInt()
+                        try {
+                            windowManager.updateViewLayout(floatingButton, params)
+                        } catch (e: Exception) {
+                            e.printStackTrace()
+                        }
+                    }
+                    true
+                }
+                MotionEvent.ACTION_UP -> {
+                    val clickDuration = System.currentTimeMillis() - initialClickTime
+                    if (isClick && clickDuration < 200) {
+                        floatingButton.performClick()
+                    }
                     true
                 }
                 else -> false

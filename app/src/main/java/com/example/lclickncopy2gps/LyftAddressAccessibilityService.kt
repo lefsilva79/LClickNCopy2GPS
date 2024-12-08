@@ -15,14 +15,6 @@ class LyftAddressAccessibilityService : AccessibilityService() {
 
     override fun onServiceConnected() {
         super.onServiceConnected()
-        val info = serviceInfo.apply {
-            eventTypes = AccessibilityEvent.TYPE_WINDOW_CONTENT_CHANGED
-            feedbackType = AccessibilityServiceInfo.FEEDBACK_GENERIC
-            flags = AccessibilityServiceInfo.FLAG_INCLUDE_NOT_IMPORTANT_VIEWS
-            packageNames = arrayOf("com.lyft.android.driver")
-            notificationTimeout = 100
-        }
-        setServiceInfo(info)
         Log.d(TAG, "Serviço de acessibilidade conectado")
     }
 
