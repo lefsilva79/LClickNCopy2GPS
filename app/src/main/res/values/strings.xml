@@ -1,0 +1,5 @@
+<resources>
+    <string name="app_name">LClickNCopy2GPS</string>
+    <string name="floating_button_description">Botão flutuante</string>
+    <string name="accessibility_service_description">Serviço para detectar endereços do Lyft</string>
+</resources>
