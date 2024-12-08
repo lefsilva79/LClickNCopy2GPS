@@ -11,11 +11,11 @@ import android.view.MotionEvent
 import android.view.View
 import android.view.WindowManager
 import android.widget.ImageButton
-import java.net.URLEncoder
+import android.widget.Toast
 
 class FloatingButtonService : Service() {
     private lateinit var windowManager: WindowManager
-    private lateinit var floatingButton: ImageButton
+    private lateinit var floatingButton: View
     private var initialX: Int = 0
     private var initialY: Int = 0
     private var initialTouchX: Float = 0f
@@ -25,19 +25,13 @@ class FloatingButtonService : Service() {
 
     override fun onCreate() {
         super.onCreate()
-
         windowManager = getSystemService(WINDOW_SERVICE) as WindowManager
+        setupFloatingButton()
+    }
 
-        floatingButton = (LayoutInflater.from(this)
-            .inflate(R.layout.floating_button, null) as ImageButton).apply {
-            setOnTouchListener(getTouchListener())
-            setOnClickListener {
-                val address = LyftAddressAccessibilityService.lastDetectedAddress
-                if (address.isNotEmpty()) {
-                    openAddressInWaze(address)
-                }
-            }
-        }
+    private fun setupFloatingButton() {
+        val inflater = LayoutInflater.from(this)
+        floatingButton = inflater.inflate(R.layout.layout_floating_button, null)
 
         val params = WindowManager.LayoutParams(
             WindowManager.LayoutParams.WRAP_CONTENT,
@@ -45,66 +39,71 @@ class FloatingButtonService : Service() {
             WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY,
             WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE,
             PixelFormat.TRANSLUCENT
-        ).apply {
-            gravity = Gravity.TOP or Gravity.START
-            x = 100
-            y = 100
+        )
+        params.gravity = Gravity.TOP or Gravity.START
+        params.x = 0
+        params.y = 100
+
+        val button = floatingButton.findViewById<ImageButton>(R.id.floatingButton)
+        button.setOnClickListener {
+            handleButtonClick()
         }
 
-        try {
-            windowManager.addView(floatingButton, params)
-        } catch (e: Exception) {
-            e.printStackTrace()
+        setupTouchListener(params)
+        windowManager.addView(floatingButton, params)
+    }
+
+    private fun setupTouchListener(params: WindowManager.LayoutParams) {
+        floatingButton.setOnTouchListener { _, event ->
+            when (event.action) {
+                MotionEvent.ACTION_DOWN -> {
+                    initialX = params.x
+                    initialY = params.y
+                    initialTouchX = event.rawX
+                    initialTouchY = event.rawY
+                    true
+                }
+                MotionEvent.ACTION_MOVE -> {
+                    params.x = initialX + (event.rawX - initialTouchX).toInt()
+                    params.y = initialY + (event.rawY - initialTouchY).toInt()
+                    windowManager.updateViewLayout(floatingButton, params)
+                    true
+                }
+                else -> false
+            }
         }
     }
 
-    private fun getTouchListener(): View.OnTouchListener = View.OnTouchListener { view, event ->
-        val params = view.layoutParams as WindowManager.LayoutParams
-
-        when (event.action) {
-            MotionEvent.ACTION_DOWN -> {
-                initialX = params.x
-                initialY = params.y
-                initialTouchX = event.rawX
-                initialTouchY = event.rawY
-                true
-            }
-            MotionEvent.ACTION_MOVE -> {
-                params.x = initialX + (event.rawX - initialTouchX).toInt()
-                params.y = initialY + (event.rawY - initialTouchY).toInt()
-                windowManager.updateViewLayout(view, params)
-                true
-            }
-            MotionEvent.ACTION_UP -> {
-                val moved = Math.abs(event.rawX - initialTouchX) > 10 ||
-                        Math.abs(event.rawY - initialTouchY) > 10
-                !moved // Se não moveu, permite o click
-            }
-            else -> false
+    private fun handleButtonClick() {
+        val address = LyftAddressAccessibilityService.lastDetectedAddress
+        if (address.isNotEmpty()) {
+            openWaze(address)
+        } else {
+            Toast.makeText(this, "Nenhum endereço detectado ainda", Toast.LENGTH_SHORT).show()
         }
     }
 
-    private fun openAddressInWaze(address: String) {
+    private fun openWaze(address: String) {
         try {
-            val encodedAddress = URLEncoder.encode(address, "UTF-8")
-            val wazeUri = "https://waze.com/ul?q=$encodedAddress"
+            val formattedAddress = address.trim().replace(Regex("\\s+"), " ")
+            val wazeUri = "waze://?q=${Uri.encode(formattedAddress)}&navigate=yes"
             val intent = Intent(Intent.ACTION_VIEW, Uri.parse(wazeUri)).apply {
                 flags = Intent.FLAG_ACTIVITY_NEW_TASK
             }
             startActivity(intent)
         } catch (e: Exception) {
-            e.printStackTrace()
+            val marketUri = "market://details?id=com.waze"
+            val intent = Intent(Intent.ACTION_VIEW, Uri.parse(marketUri)).apply {
+                flags = Intent.FLAG_ACTIVITY_NEW_TASK
+            }
+            startActivity(intent)
         }
     }
 
     override fun onDestroy() {
         super.onDestroy()
-        if (::floatingButton.isInitialized && ::windowManager.isInitialized) {
-            try {
-                windowManager.removeView(floatingButton)
-            } catch (e: Exception) {
-                e.printStackTrace()
-            }
+        if (::floatingButton.isInitialized) {
+            windowManager.removeView(floatingButton)
         }
     }
 }

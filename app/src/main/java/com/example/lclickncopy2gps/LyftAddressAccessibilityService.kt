@@ -19,7 +19,7 @@ class LyftAddressAccessibilityService : AccessibilityService() {
             eventTypes = AccessibilityEvent.TYPE_WINDOW_CONTENT_CHANGED
             feedbackType = AccessibilityServiceInfo.FEEDBACK_GENERIC
             flags = AccessibilityServiceInfo.FLAG_INCLUDE_NOT_IMPORTANT_VIEWS
-            packageNames = arrayOf("me.lyft.android") // Package correto do Lyft
+            packageNames = arrayOf("com.lyft.android.driver")
             notificationTimeout = 100
         }
         setServiceInfo(info)
@@ -44,8 +44,11 @@ class LyftAddressAccessibilityService : AccessibilityService() {
         try {
             node.text?.toString()?.let { text ->
                 if (isAddress(text)) {
-                    lastDetectedAddress = text
-                    Log.d(TAG, "Endereço detectado: $lastDetectedAddress")
+                    val formattedAddress = formatAddress(text)
+                    if (formattedAddress != lastDetectedAddress) {
+                        lastDetectedAddress = formattedAddress
+                        Log.d(TAG, "Endereço detectado e formatado: $lastDetectedAddress")
+                    }
                 }
             }
 
@@ -61,12 +64,19 @@ class LyftAddressAccessibilityService : AccessibilityService() {
     }
 
     private fun isAddress(text: String): Boolean {
-        return text.length > 10 && (
-                text.contains("Rua", ignoreCase = true) ||
-                        text.contains("Avenida", ignoreCase = true) ||
-                        text.contains("R.", ignoreCase = true) ||
-                        text.contains("Av.", ignoreCase = true)
-                )
+        // Verifica se começa com números (padrão americano)
+        val startsWithNumber = text.trim().matches(Regex("^\\d+.*"))
+
+        // Verifica se tem um comprimento mínimo razoável e contém mais números
+        return startsWithNumber && text.length > 5 && text.contains(Regex("\\d+"))
+    }
+
+    private fun formatAddress(text: String): String {
+        return text
+            .trim() // Remove espaços no início e fim
+            .replace(Regex("\\s+"), " ") // Substitui múltiplos espaços por um único espaço
+            .replace("\n", " ") // Substitui quebras de linha por espaço
+            .replace("\t", " ") // Substitui tabs por espaço
     }
 
     override fun onInterrupt() {
