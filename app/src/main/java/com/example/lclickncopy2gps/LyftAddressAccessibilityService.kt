@@ -17,10 +17,17 @@ class LyftAddressAccessibilityService : AccessibilityService() {
         }
     }
 
+    private var screenHeight: Int = 0
+    private var screenWidth: Int = 0
+
     override fun onServiceConnected() {
         super.onServiceConnected()
         instance = this
         Log.d(TAG, "Serviço de acessibilidade conectado")
+
+        val displayMetrics = resources.displayMetrics
+        screenHeight = displayMetrics.heightPixels
+        screenWidth = displayMetrics.widthPixels
     }
 
     private fun findCurrentAddress(): String {
@@ -43,16 +50,24 @@ class LyftAddressAccessibilityService : AccessibilityService() {
 
     private fun findAddressNodes(node: AccessibilityNodeInfo) {
         try {
-            node.text?.toString()?.let { text ->
-                if (isAddress(text)) {
-                    val formattedAddress = formatAddress(text)
-                    if (formattedAddress.isNotEmpty()) {
-                        lastDetectedAddress = formattedAddress
-                        Log.d(TAG, "Endereço detectado e formatado: $lastDetectedAddress")
+            // Obtém as coordenadas na tela do nó atual
+            val rect = android.graphics.Rect()
+            node.getBoundsInScreen(rect)
+
+            // Só processa se o nó estiver na metade inferior da tela
+            if (rect.top >= screenHeight / 2) {
+                node.text?.toString()?.let { text ->
+                    if (isAddress(text)) {
+                        val formattedAddress = formatAddress(text)
+                        if (formattedAddress.isNotEmpty()) {
+                            lastDetectedAddress = formattedAddress
+                            Log.d(TAG, "Endereço detectado e formatado: $lastDetectedAddress")
+                        }
                     }
                 }
             }
 
+            // Continue procurando nos nós filhos
             for (i in 0 until node.childCount) {
                 node.getChild(i)?.let { child ->
                     findAddressNodes(child)
