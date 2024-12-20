@@ -5,5 +5,5 @@
     <string name="accessibility_service_description">Serviço para detectar endereços do Lyft</string>
     <string name="close_button_description">Botão para fechar o serviço</string>
     <string name="accessibility_service_label">LClickNCopy2GPS</string>
-
+    <string name="app_name_with_version">LClickNCopy2GPS v1.3</string>
 </resources>

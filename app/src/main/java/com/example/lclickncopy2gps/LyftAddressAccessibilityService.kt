@@ -15,6 +15,11 @@ class LyftAddressAccessibilityService : AccessibilityService() {
         fun detectAddressNow(): String {
             return instance?.findCurrentAddress() ?: ""
         }
+
+        // Novo método para detectar endereço na parte superior
+        fun detectAddressTopHalf(): String {
+            return instance?.findAddressInTopHalf() ?: ""
+        }
     }
 
     private var screenHeight: Int = 0
@@ -40,6 +45,21 @@ class LyftAddressAccessibilityService : AccessibilityService() {
             }
         } catch (e: Exception) {
             Log.e(TAG, "Erro ao buscar endereço", e)
+        }
+        return lastDetectedAddress
+    }
+
+    // Novo método para encontrar endereço na parte superior
+    private fun findAddressInTopHalf(): String {
+        lastDetectedAddress = ""  // Reset do último endereço
+        try {
+            val rootNode = rootInActiveWindow
+            if (rootNode != null) {
+                findAddressNodesInTopHalf(rootNode)
+                rootNode.recycle()
+            }
+        } catch (e: Exception) {
+            Log.e(TAG, "Erro ao buscar endereço na parte superior", e)
         }
         return lastDetectedAddress
     }
@@ -76,6 +96,38 @@ class LyftAddressAccessibilityService : AccessibilityService() {
             }
         } catch (e: Exception) {
             Log.e(TAG, "Erro ao procurar nós de endereço", e)
+        }
+    }
+
+    // Novo método para procurar endereços na parte superior
+    private fun findAddressNodesInTopHalf(node: AccessibilityNodeInfo) {
+        try {
+            // Obtém as coordenadas na tela do nó atual
+            val rect = android.graphics.Rect()
+            node.getBoundsInScreen(rect)
+
+            // Só processa se o nó estiver na metade superior da tela
+            if (rect.top < screenHeight / 2) {
+                node.text?.toString()?.let { text ->
+                    if (isAddress(text)) {
+                        val formattedAddress = formatAddress(text)
+                        if (formattedAddress.isNotEmpty()) {
+                            lastDetectedAddress = formattedAddress
+                            Log.d(TAG, "Endereço detectado na parte superior: $lastDetectedAddress")
+                        }
+                    }
+                }
+            }
+
+            // Continue procurando nos nós filhos
+            for (i in 0 until node.childCount) {
+                node.getChild(i)?.let { child ->
+                    findAddressNodesInTopHalf(child)
+                    child.recycle()
+                }
+            }
+        } catch (e: Exception) {
+            Log.e(TAG, "Erro ao procurar nós de endereço na parte superior", e)
         }
     }
 

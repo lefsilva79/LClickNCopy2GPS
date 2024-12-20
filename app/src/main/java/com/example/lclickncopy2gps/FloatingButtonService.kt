@@ -1,18 +1,25 @@
 package com.example.lclickncopy2gps
 
 import android.app.Service
+import android.content.ClipData
+import android.content.ClipboardManager
+import android.content.Context
 import android.content.Intent
 import android.graphics.PixelFormat
 import android.graphics.Rect
+import android.graphics.Color
 import android.location.Geocoder
 import android.net.Uri
+import android.os.Handler
 import android.os.IBinder
+import android.os.Looper
 import android.view.Gravity
 import android.view.LayoutInflater
 import android.view.MotionEvent
 import android.view.View
 import android.view.WindowManager
 import android.widget.ImageButton
+import android.widget.ImageView
 import android.widget.Toast
 import com.google.android.gms.maps.model.LatLng
 import java.io.IOException
@@ -27,6 +34,12 @@ class FloatingButtonService : Service() {
     private var initialTouchX: Float = 0f
     private var initialTouchY: Float = 0f
     private var isCloseBtnShowing = false
+    private var startTime: Long = 0
+
+    // Novas constantes para os efeitos
+    private val ATTRACTION_THRESHOLD = 300
+    private val ATTRACTION_FORCE = 0.6f
+    private val LONG_PRESS_DURATION = 2000 // 2 segundos em milissegundos
 
     override fun onBind(intent: Intent): IBinder? = null
 
@@ -38,10 +51,8 @@ class FloatingButtonService : Service() {
     }
 
     private fun setupFloatingButton() {
-        // Infla o layout
         floatingButton = LayoutInflater.from(this).inflate(R.layout.layout_floating_button, null)
 
-        // Configura os parâmetros da janela
         val params = WindowManager.LayoutParams(
             WindowManager.LayoutParams.WRAP_CONTENT,
             WindowManager.LayoutParams.WRAP_CONTENT,
@@ -54,7 +65,6 @@ class FloatingButtonService : Service() {
             y = 100
         }
 
-        // Adiciona a view e configura o listener
         windowManager.addView(floatingButton, params)
         setupTouchListener(params)
     }
@@ -70,11 +80,16 @@ class FloatingButtonService : Service() {
             PixelFormat.TRANSLUCENT
         ).apply {
             gravity = Gravity.BOTTOM or Gravity.CENTER_HORIZONTAL
-            y = 100 // Distância do fundo da tela
+            y = 100
         }
 
         closeButton.visibility = View.GONE
         windowManager.addView(closeButton, params)
+
+        // Configura a cor inicial do botão de fechar
+        closeButton.findViewById<ImageView>(R.id.closeButton)?.let { closeImageView ->
+            closeImageView.setColorFilter(Color.GRAY)
+        }
     }
 
     private fun setupTouchListener(params: WindowManager.LayoutParams) {
@@ -87,6 +102,7 @@ class FloatingButtonService : Service() {
                     initialY = params.y
                     initialTouchX = event.rawX
                     initialTouchY = event.rawY
+                    startTime = System.currentTimeMillis()
                     showCloseButton()
                     true
                 }
@@ -97,8 +113,21 @@ class FloatingButtonService : Service() {
                         windowManager.updateViewLayout(floatingButton, params)
 
                         if (isNearCloseButton()) {
+                            // Aplica efeitos quando próximo
+                            applyAttractionForce(params)
+                            closeButton.findViewById<ImageView>(R.id.closeButton)?.let { closeImageView ->
+                                closeImageView.setColorFilter(Color.RED)
+                                closeImageView.scaleX = 1.3f
+                                closeImageView.scaleY = 1.3f
+                            }
                             closeButton.alpha = 0.7f
                         } else {
+                            // Retorna ao normal
+                            closeButton.findViewById<ImageView>(R.id.closeButton)?.let { closeImageView ->
+                                closeImageView.setColorFilter(Color.GRAY)
+                                closeImageView.scaleX = 1.0f
+                                closeImageView.scaleY = 1.0f
+                            }
                             closeButton.alpha = 1.0f
                         }
                     } catch (e: Exception) {
@@ -108,14 +137,21 @@ class FloatingButtonService : Service() {
                 }
                 MotionEvent.ACTION_UP -> {
                     hideCloseButton()
+                    val endTime = System.currentTimeMillis()
+                    val pressDuration = endTime - startTime
+
                     val moved = Math.abs(event.rawX - initialTouchX) > 5 ||
                             Math.abs(event.rawY - initialTouchY) > 5
 
                     if (isNearCloseButton()) {
                         stopSelf()
                     } else if (!moved) {
-                        view.performClick()
-                        handleButtonClick()
+                        if (pressDuration >= LONG_PRESS_DURATION) {
+                            handleLongPress()
+                        } else {
+                            view.performClick()
+                            handleButtonClick()
+                        }
                     }
                     true
                 }
@@ -128,6 +164,22 @@ class FloatingButtonService : Service() {
         }
     }
 
+    private fun handleLongPress() {
+        val address = LyftAddressAccessibilityService.detectAddressTopHalf()
+        if (address.isNotEmpty()) {
+            // Copia o endereço para a área de transferência (mantém essa funcionalidade)
+            val clipboard = getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+            val clip = ClipData.newPlainText("address", address)
+            clipboard.setPrimaryClip(clip)
+            Toast.makeText(this, "Endereço copiado: $address", Toast.LENGTH_SHORT).show()
+
+            // Executa a mesma ação do clique normal do botão
+            openWaze(address)
+        } else {
+            Toast.makeText(this, "Nenhum endereço detectado na parte superior da tela", Toast.LENGTH_SHORT).show()
+        }
+    }
+
     private fun isNearCloseButton(): Boolean {
         if (!::closeButton.isInitialized) return false
 
@@ -137,17 +189,32 @@ class FloatingButtonService : Service() {
         val buttonLocation = IntArray(2)
         floatingButton.getLocationOnScreen(buttonLocation)
 
-        val closeRect = Rect(
-            closeLocation[0],
-            closeLocation[1],
-            closeLocation[0] + closeButton.width,
-            closeLocation[1] + closeButton.height
-        )
+        val distance = Math.sqrt(
+            Math.pow((closeLocation[0] - buttonLocation[0]).toDouble(), 2.0) +
+                    Math.pow((closeLocation[1] - buttonLocation[1]).toDouble(), 2.0)
+        ).toFloat()
 
-        return closeRect.contains(
-            buttonLocation[0] + floatingButton.width/2,
-            buttonLocation[1] + floatingButton.height/2
-        )
+        return distance < ATTRACTION_THRESHOLD
+    }
+
+    private fun applyAttractionForce(params: WindowManager.LayoutParams) {
+        val closeLocation = IntArray(2)
+        val buttonLocation = IntArray(2)
+
+        closeButton.getLocationOnScreen(closeLocation)
+        floatingButton.getLocationOnScreen(buttonLocation)
+
+        val deltaX = closeLocation[0] - buttonLocation[0]
+        val deltaY = closeLocation[1] - buttonLocation[1]
+
+        params.x += (deltaX * ATTRACTION_FORCE).toInt()
+        params.y += (deltaY * ATTRACTION_FORCE).toInt()
+
+        try {
+            windowManager.updateViewLayout(floatingButton, params)
+        } catch (e: Exception) {
+            e.printStackTrace()
+        }
     }
 
     private fun showCloseButton() {
@@ -161,12 +228,25 @@ class FloatingButtonService : Service() {
         if (isCloseBtnShowing && ::closeButton.isInitialized) {
             closeButton.visibility = View.GONE
             isCloseBtnShowing = false
+
+            // Reseta o estado do botão de fechar
+            closeButton.findViewById<ImageView>(R.id.closeButton)?.let { closeImageView ->
+                closeImageView.setColorFilter(Color.GRAY)
+                closeImageView.scaleX = 1.0f
+                closeImageView.scaleY = 1.0f
+            }
         }
     }
 
     private fun handleButtonClick() {
         val address = LyftAddressAccessibilityService.detectAddressNow()
         if (address.isNotEmpty()) {
+            // Copia o endereço para a área de transferência
+            val clipboard = getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+            val clip = ClipData.newPlainText("address", address)
+            clipboard.setPrimaryClip(clip)
+            Toast.makeText(this, "Endereço copiado: $address", Toast.LENGTH_SHORT).show()
+
             openWaze(address)
         } else {
             Toast.makeText(this, "Nenhum endereço detectado na tela atual", Toast.LENGTH_SHORT).show()
@@ -187,15 +267,12 @@ class FloatingButtonService : Service() {
     private fun getCoordinatesFromAddress(address: String): LatLng? {
         try {
             val geocoder = Geocoder(this)
-            // Aumentando a precisão usando o endereço completo
             val results = geocoder.getFromLocationName(address, 1)
             if (!results.isNullOrEmpty()) {
                 val location = results[0]
-                // Validar se o número do endereço está correto
                 val streetNumber = address.split(" ").firstOrNull()?.toIntOrNull()
                 val resultNumber = location.getAddressLine(0)?.split(" ")?.firstOrNull()?.toIntOrNull()
 
-                // Se os números são muito diferentes, retorna null para usar o método de endereço direto
                 if (streetNumber != null && resultNumber != null) {
                     if (Math.abs(streetNumber - resultNumber) > 2) {
                         return null
@@ -215,7 +292,7 @@ class FloatingButtonService : Service() {
                     "&navigate=yes" +
                     "&zoom=17" +
                     "&accuracy=100" +
-                    "&q=${Uri.encode(address)}"  // Adiciona o endereço original como referência
+                    "&q=${Uri.encode(address)}"
             val intent = Intent(Intent.ACTION_VIEW, Uri.parse(wazeUri)).apply {
                 flags = Intent.FLAG_ACTIVITY_NEW_TASK
             }
